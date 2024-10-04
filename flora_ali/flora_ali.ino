@@ -2,49 +2,51 @@
 // Released under the GPLv3 license to match the rest of the
 // Adafruit NeoPixel library
 
-#define LED_PIN 9
-#define POT_PIN A10
-#define MIC_PIN A11
-#define WAVE_SPEED 1
-#define LEDS_1 3
-#define LEDS_2 6
+#define LED_PIN 9    //pin della led strip
+#define POT_PIN A10  //pin potenziometro
+#define MIC_PIN A11  //pin sensore microfono
+#define LEDS_1 3     //pin led monocolore ala 1
+#define LEDS_2 6     //pin led monocolore ala 2
+
+#define WAVE_SPEED 10          //velocitá di base del fade dei led a singolo colore
+#define MAX_BOOST 5            //incremento massimo velocitá fade in base al rumore
+
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
-
-
 #define NUMPIXELS 6  // Popular NeoPixel ring size
 Adafruit_NeoPixel wing1(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 unsigned long trigger_time = 0;
-bool wave_ended = false;
-uint8_t color_trigger[3];
-
+int led_intensity = 0;
+int led_int_dir = 1;
 
 void setup() {
   wing1.begin();  // INITIALIZE NeoPixel strip object (REQUIRED)
   Serial.begin(9600);
   pinMode(MIC_PIN, INPUT);
-  pinMode(A10, INPUT);
+  pinMode(POT_PIN, INPUT);
   pinMode(LEDS_1, OUTPUT);
   pinMode(LEDS_2, OUTPUT);
 }
 
 void loop() {
   unsigned long current_time = millis();
-  analogWrite(LEDS_1, (current_time%1531)*0.25);
-  analogWrite(LEDS_2, (current_time%1531)*0.25);
-  int wave_scale = analogRead(A10);
-  wave_scale = map(wave_scale,0,1023,5,40);
+
+  int wave_scale = analogRead(POT_PIN);
+  wave_scale = map(wave_scale, 0, 1023, 5, 40);
+
+  //legge il rumore nel microfono e lo mette in delta
   int mn = 1024;
   int mx = 0;
   int val = analogRead(MIC_PIN);
   for (int i = 0; i < 50; ++i) {
     val = analogRead(MIC_PIN);
-    
+    delay(1);
     mn = min(mn, val);
     mx = max(mx, val);
   }
-  delay(1);
   int delta = mx - mn;
+  delta = constrain(delta * wave_scale, 0, 255);
+  /*
   Serial.print(mn);
   Serial.print(" ");
   Serial.print(mx);
@@ -52,51 +54,51 @@ void loop() {
   Serial.print(val);
   Serial.print(" ");
   Serial.println(delta);
+  //*/
 
-  delta = constrain(delta * wave_scale, 0, 255);
-  int r = 0;
-  int g = 0;
-  int b = 0;
-  if (delta > 60 && wave_ended) {
-    wave_ended = false;
-    trigger_time = current_time;
-    
-    if (delta > 180) {
-      r = delta;
-    } else if (delta > 120) {
-      g = delta;
-    }else{
-      b = delta;
-    }
-    color_trigger[0] = r;
-    color_trigger[1] = g;
-    color_trigger[2] = b;
+  //esegue la wave sui pin monocolore
+  float speed_boost = map(delta, 0, 255, 1, MAX_BOOST);
+  led_intensity = led_intensity + WAVE_SPEED * led_int_dir * speed_boost;
+  if (led_intensity > 255 || led_intensity < 0) {
+    led_int_dir = led_int_dir * -1;
   }
+  led_intensity = constrain(led_intensity, 0, 255);
+  analogWrite(LEDS_1, led_intensity);
+  analogWrite(LEDS_2, led_intensity);
 
-  if (trigger_time > 0) {
-    wing1.setPixelColor(0, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-    wing1.setPixelColor(3, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-     if (current_time - trigger_time > 100) {
-      wing1.setPixelColor(0, wing1.Color(0,0,0));
-      wing1.setPixelColor(3, wing1.Color(0,0,0));
-     }
+  //se c'é abbastanza rumore colora i led (led dal piú interno al piu' esterno per ogni ala)
+  //poco rumore led = blu bianco bianco
+  //medio rumore led = verde verde bianco
+  // massimo rumore led = rosso rosso rosso
+
+  //in assenza di rumore
+  // led = bianco bianco bianco (wave insieme agli altri led)
+  if (delta > 60) {
+    trigger_time = current_time;
+    for (int led_i = 0; led_i < NUMPIXELS; led_i++) {
+      wing1.setPixelColor(led_i, wing1.Color(255, 255, 255));
+    }
+    if (delta > 180) {
+      wing1.setPixelColor(0, wing1.Color(255, 0, 0));
+      wing1.setPixelColor(3, wing1.Color(255, 0, 0));
+      wing1.setPixelColor(1, wing1.Color(255, 0, 0));
+      wing1.setPixelColor(4, wing1.Color(255, 0, 0));
+      wing1.setPixelColor(2, wing1.Color(255, 0, 0));
+      wing1.setPixelColor(5, wing1.Color(255, 0, 0));
+    } else if (delta > 120) {
+      wing1.setPixelColor(0, wing1.Color(0, 255, 0));
+      wing1.setPixelColor(3, wing1.Color(0, 255, 0));
+      wing1.setPixelColor(1, wing1.Color(0, 255, 0));
+      wing1.setPixelColor(4, wing1.Color(0, 255, 0));
+    } else {
+      wing1.setPixelColor(0, wing1.Color(0, 0, 255));
+      wing1.setPixelColor(3, wing1.Color(0, 0, 255));
+    }
   }
   if (current_time - trigger_time > 100) {
-    wing1.setPixelColor(1, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-    wing1.setPixelColor(4, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-    if (current_time - trigger_time > 200) {
-      wing1.setPixelColor(1, wing1.Color(0,0,0));
-      wing1.setPixelColor(4, wing1.Color(0,0,0));
-     }
+    for (int led_i = 0; led_i < NUMPIXELS; led_i++) {
+      wing1.setPixelColor(led_i, wing1.Color(led_intensity, led_intensity, led_intensity));
+    }
   }
-  if (current_time - trigger_time > 200) {
-    wing1.setPixelColor(2, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-    wing1.setPixelColor(5, wing1.Color(color_trigger[0], color_trigger[1], color_trigger[2]));
-  }
-  if (current_time - trigger_time > 300) {
-    wing1.clear();
-    wave_ended = true;
-  }
-
   wing1.show();
 }
